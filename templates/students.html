@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hello</title>
+  </head>
+  <body>
+    {{#if name}}
+    <h1>Hello, {{name}}!</h1>
+    {{/if}}
+    <!-- -->
+    {{#if students}}
+    <ul>
+      {{#each students}}
+      <li>
+        <span id="name-{{this.id}}">{{this.name}} from {{this.house}}</span>
+        <form style="display: inline" action="/students/delete" method="post">
+          <input type="hidden" name="id" value="{{this.id}}" />
+          <button
+            id="delete-{{this.id}}"
+            aria-labelledby="delete-{{this.id}} name-{{this.id}}"
+          >
+            Delete
+          </button>
+          <a
+            href="/students/change?id={{this.id}}"
+            id="change-{{this.id}}"
+            aria-labelledby="change-{{this.id}} name-{{this.id}}"
+          >
+            Изменить
+          </a>
+        </form>
+      </li>
+      {{/each}}
+    </ul>
+    {{/if}}
+    <form method="post">
+      <input name="name" />
+      <select name="house">
+        <option disabled selected>Choose House</option>
+        {{#each houses}}
+        <option value="{{this}}">{{this}}</option>
+        {{/each}}
+      </select>
+      <button>Добавить</button>
+    </form>
+    <form>
+      <select name="order">
+        {{#select order}}
+        <option value="">---none---</option>
+        <option value="abc">По алфавиту</option>
+        <option value="zyx">В обратном порядке</option>
+        {{/select}}
+      </select>
+      <button>Сортировать</button>
+    </form>
+  </body>
+</html>
