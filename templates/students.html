@@ -7,10 +7,6 @@
     <title>Hello</title>
   </head>
   <body>
-    {{#if name}}
-    <h1>Hello, {{name}}!</h1>
-    {{/if}}
-    <!-- -->
     {{#if students}}
     <ul>
       {{#each students}}
@@ -25,7 +21,7 @@
             Delete
           </button>
           <a
-            href="/students/change?id={{this.id}}"
+            href="/students/{{this.id}}/change"
             id="change-{{this.id}}"
             aria-labelledby="change-{{this.id}} name-{{this.id}}"
           >

@@ -1,21 +1,36 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Document</title>
+    <title>Редактировать {{student.name}}</title>
+    <style>
+      .error {
+        font-weight: medium;
+        color: red;
+      }
+    </style>
   </head>
   <body>
+    {{#if errors.unique}}
+    <p class="error">{{errors.unique}}</p>
+    {{/if}}
     <form method="post">
       <label for="name">Имя студента</label>
-      <input id="name" value="{{student.name}}" />
+      <input id="name" name="name" value="{{student.name}}" />
+      {{#if errors.name}}
+      <span class="error">{{errors.name}}</span>
+      {{/if}}
       <label for="house">Название Дома</label>
       <select id="house" name="house">
         {{#select student.house}} {{#each houses}}
         <option value="{{this}}">{{this}}</option>
         {{/each}} {{/select}}
       </select>
+      {{#if errors.house}}
+      <span class="error">{{errors.house}}</span>
+      {{/if}}
       <button>Сохранить</button>
     </form>
   </body>
