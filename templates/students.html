@@ -7,6 +7,16 @@
     <title>Hello</title>
   </head>
   <body>
+    <form>
+      <select name="order">
+        {{#select order}}
+        <option value="">---none---</option>
+        <option value="abc">По алфавиту</option>
+        <option value="zyx">В обратном порядке</option>
+        {{/select}}
+      </select>
+      <button>Сортировать</button>
+    </form>
     {{#if students}}
     <ul>
       {{#each students}}
@@ -41,16 +51,6 @@
         {{/each}}
       </select>
       <button>Добавить</button>
-    </form>
-    <form>
-      <select name="order">
-        {{#select order}}
-        <option value="">---none---</option>
-        <option value="abc">По алфавиту</option>
-        <option value="zyx">В обратном порядке</option>
-        {{/select}}
-      </select>
-      <button>Сортировать</button>
     </form>
   </body>
 </html>

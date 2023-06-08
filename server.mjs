@@ -31,67 +31,87 @@ var House = {
 
 var HOUSES = Object.values(House);
 
-var ROUTES = new Map();
+var routes = [
+  {
+    path: "/students",
+    methods: ["GET", "POST"],
+    handler: studentList,
+  },
+  {
+    path: "/students/delete",
+    methods: ["POST"],
+    handler: studentDelete,
+  },
+  {
+    path: "/students/:id/change",
+    methods: ["GET", "POST"],
+    handler: studentChange,
+  },
+];
 
-ROUTES.set(/^\/students$/, studentList);
-ROUTES.set(/^\/students\/delete$/, studentDelete);
-ROUTES.set(/^\/students\/(?<id>\d+)\/change$/, studentChange);
+for (let route of routes) {
+  route.pattern = new RegExp(
+    "^" + route.path.replace(/:(\w+)/, "(?<$1>\\w+)") + "$"
+  );
+}
 
 var server = http.createServer(function handler(request, response) {
   var parsedURL = url.parse(request.url);
 
-  for (let [routeRegex, routeHandler] of ROUTES.entries()) {
-    let match = routeRegex.exec(parsedURL.pathname);
-    if (match) {
-      let params = match.groups ?? {};
-      routeHandler(request, response, params);
-      return;
+  for (let route of routes) {
+    let match = route.pattern.exec(parsedURL.pathname);
+    if (!match) {
+      continue;
     }
+    if (route.methods.includes(request.method)) {
+      let params = match.groups ?? {};
+      route.handler(request, response, params);
+    } else {
+      response.writeHead(405);
+      response.end();
+    }
+    return;
   }
 
   response.writeHead(404, { "Content-Type": "text/html" });
   response.end("<h1>Page not found!</h1>\n");
 });
 
+/**
+ * @param {http.IncomingMessage} request
+ * @param {http.ServerResponse} response
+ */
 async function studentList(request, response) {
   var parsedURL = url.parse(request.url);
 
   if (request.method == "POST") {
-    let body = "";
-    request.on("data", function handleChunk(data) {
-      body += data;
-    });
+    let formData = await parseFormData(request);
 
-    request.on("end", async function handleEnd() {
-      let searchParams = new URLSearchParams(body);
+    let studentName = formData.get("name");
+    let studentHouse = formData.get("house");
 
-      let studentName = searchParams.get("name");
-      let studentHouse = searchParams.get("house");
+    if (studentName && HOUSES.includes(studentHouse)) {
+      let isUniqueStudent =
+        (
+          await db.get(
+            "SELECT EXISTS(SELECT 1 FROM students WHERE name = ?) AS exists_",
+            studentName
+          )
+        ).exists_ == 0;
 
-      if (studentName && HOUSES.includes(studentHouse)) {
-        let isUniqueStudent =
-          (
-            await db.get(
-              "SELECT EXISTS(SELECT 1 FROM students WHERE name = ?) AS exists_",
-              studentName
-            )
-          ).exists_ == 0;
-
-        if (isUniqueStudent) {
-          // students.push({ name: studentName, house: studentHouse });
-          await db.run(
-            "INSERT INTO students (name, house) VALUES (?, ?)",
-            studentName,
-            studentHouse
-          );
-        }
+      if (isUniqueStudent) {
+        await db.run(
+          "INSERT INTO students (name, house) VALUES (?, ?)",
+          studentName,
+          studentHouse
+        );
       }
+    }
 
-      response.writeHead(302, {
-        Location: `http://${HOSTNAME}:${PORT}/students`,
-      });
-      response.end();
+    response.writeHead(302, {
+      Location: `http://${HOSTNAME}:${PORT}/students`,
     });
+    response.end();
   } else {
     let searchParams = new URLSearchParams(parsedURL.query);
     let order = searchParams.get("order");
@@ -114,33 +134,29 @@ async function studentList(request, response) {
   }
 }
 
+/**
+ * @param {http.IncomingMessage} request
+ * @param {http.ServerResponse} response
+ */
 async function studentDelete(request, response) {
-  if (request.method == "POST") {
-    let body = "";
-    request.on("data", function handleChunk(data) {
-      body += data;
-    });
+  let formData = await parseFormData(request);
+  let studentId = formData.get("id");
 
-    request.on("end", async function handleEnd() {
-      let searchParams = new URLSearchParams(body);
-
-      let studentId = searchParams.get("id");
-
-      if (studentId) {
-        await db.run("DELETE FROM students WHERE id = ?", studentId);
-      }
-
-      response.writeHead(302, {
-        Location: `http://${HOSTNAME}:${PORT}/students`,
-      });
-      response.end();
-    });
-  } else {
-    response.statusCode = 405;
-    response.end();
+  if (studentId) {
+    await db.run("DELETE FROM students WHERE id = ?", studentId);
   }
+
+  response
+    .writeHead(302, {
+      Location: `http://${HOSTNAME}:${PORT}/students`,
+    })
+    .end();
 }
 
+/**
+ * @param {http.IncomingMessage} request
+ * @param {http.ServerResponse} response
+ */
 async function studentChange(request, response, params) {
   let studentId = params.id;
   let student = studentId
@@ -159,63 +175,49 @@ async function studentChange(request, response, params) {
   };
 
   if (request.method == "POST") {
-    let body = "";
+    let formData = await parseFormData(request);
+    let studentName = formData.get("name");
+    let studentHouse = formData.get("house");
 
-    request.on("data", function handleChunk(data) {
-      body += data;
-    });
+    let studentNameIsValid = studentName.length > 0;
+    let studentHouseIsValid = HOUSES.includes(studentHouse);
 
-    request.on("end", async function handleEnd() {
-      let searchParams = new URLSearchParams(body);
-
-      let studentName = searchParams.get("name");
-      let studentHouse = searchParams.get("house");
-      console.log({ studentName, studentHouse });
-
-      let studentNameIsValid = studentName.length > 0;
-      let studentHouseIsValid = HOUSES.includes(studentHouse);
-
-      // it is possible that studentName and studentHouse already exist in db
-      // in that case we should not try to update the db.
-
-      if (studentNameIsValid && studentHouseIsValid) {
-        try {
-          await db.run(
-            "UPDATE students SET name = ?, house = ? WHERE id = ?",
-            studentName,
-            studentHouse,
-            studentId
-          );
-        } catch (err) {
-          console.log(err.message);
-          if (err.message.includes("UNIQUE constraint failed")) {
-            let html = await renderTemplate("student-edit.html", {
-              ...context,
-              errors: {
-                unique: "Student name and house are not unique",
-              },
-            });
-            response.writeHead(400, { "Content-Type": "text/html" });
-            response.end(html);
-            return;
-          }
+    if (studentNameIsValid && studentHouseIsValid) {
+      try {
+        await db.run(
+          "UPDATE students SET name = ?, house = ? WHERE id = ?",
+          studentName,
+          studentHouse,
+          studentId
+        );
+      } catch (err) {
+        if (err.message.includes("UNIQUE constraint failed")) {
+          let html = await renderTemplate("student-edit.html", {
+            ...context,
+            errors: {
+              unique: "Student name and house are not unique",
+            },
+          });
+          response.writeHead(400, { "Content-Type": "text/html" });
+          response.end(html);
+          return;
         }
-        response.writeHead(302, {
-          Location: `http://${HOSTNAME}:${PORT}/students`,
-        });
-        response.end();
-      } else {
-        let html = await renderTemplate("student-edit.html", {
-          ...context,
-          errors: {
-            name: studentNameIsValid ? undefined : "Name should not be empty",
-            house: studentHouseIsValid ? undefined : "Invalid house",
-          },
-        });
-        response.writeHead(400, { "Content-Type": "text/html" });
-        response.end(html);
       }
-    });
+      response.writeHead(302, {
+        Location: `http://${HOSTNAME}:${PORT}/students`,
+      });
+      response.end();
+    } else {
+      let html = await renderTemplate("student-edit.html", {
+        ...context,
+        errors: {
+          name: studentNameIsValid ? undefined : "Name should not be empty",
+          house: studentHouseIsValid ? undefined : "Invalid house",
+        },
+      });
+      response.writeHead(400, { "Content-Type": "text/html" });
+      response.end(html);
+    }
   } else {
     let html = await renderTemplate("student-edit.html", context);
     response.setHeader("Content-Type", "text/html");
@@ -223,11 +225,44 @@ async function studentChange(request, response, params) {
   }
 }
 
+/**
+ * @param {string} name
+ * @param {Record<string, unknown>} context
+ * @returns {Promise<string>}
+ */
 async function renderTemplate(name, context) {
   let templateStr = await fs.readFile(path.join("templates", name), "utf-8");
   let template = handlebars.compile(templateStr);
   let htmlStr = template(context);
   return htmlStr;
+}
+
+/**
+ * @param {http.IncomingMessage} request
+ * @returns {Promise<FormData>}
+ */
+async function parseFormData(request) {
+  return new Promise(function (resolve, reject) {
+    var chunks = [];
+
+    request.on("data", function (chunk) {
+      chunks.push(chunk);
+    });
+
+    request.on("end", function () {
+      var body = Buffer.concat(chunks).toString();
+      var params = new URLSearchParams(body);
+      var formData = new FormData();
+
+      for (let [key, value] of params) {
+        formData.append(key, value);
+      }
+
+      resolve(formData);
+    });
+
+    request.on("error", reject);
+  });
 }
 
 server.listen(PORT, HOSTNAME, function () {
