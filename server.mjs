@@ -33,6 +33,11 @@ var HOUSES = Object.values(House);
 
 var routes = [
   {
+    path: "/",
+    methods: ["GET"],
+    handler: index,
+  },
+  {
     path: "/students",
     methods: ["GET", "POST"],
     handler: studentList,
@@ -46,6 +51,21 @@ var routes = [
     path: "/students/:id/change",
     methods: ["GET", "POST"],
     handler: studentChange,
+  },
+  {
+    path: "/students/download",
+    methods: ["GET"],
+    handler: studentsDownload,
+  },
+  {
+    path: "/students/search",
+    methods: ["GET"],
+    handler: studentsSearch,
+  },
+  {
+    path: "/api/students",
+    methods: ["GET"],
+    handler: studentsAPISearch,
   },
 ];
 
@@ -67,15 +87,27 @@ var server = http.createServer(function handler(request, response) {
       let params = match.groups ?? {};
       route.handler(request, response, params);
     } else {
-      response.writeHead(405);
-      response.end();
+      response.writeHead(405).end();
     }
     return;
   }
 
-  response.writeHead(404, { "Content-Type": "text/html" });
-  response.end("<h1>Page not found!</h1>\n");
+  response
+    .writeHead(404, { "Content-Type": "text/html" })
+    .end("<h1>Page not found!</h1>\n");
 });
+
+/**
+ * @param {http.IncomingMessage} request
+ * @param {http.ServerResponse} response
+ */
+function index(request, response) {
+  response
+    .writeHead(302, {
+      Location: `http://${request.headers.host}/students`,
+    })
+    .end();
+}
 
 /**
  * @param {http.IncomingMessage} request
@@ -108,10 +140,11 @@ async function studentList(request, response) {
       }
     }
 
-    response.writeHead(302, {
-      Location: `http://${HOSTNAME}:${PORT}/students`,
-    });
-    response.end();
+    response
+      .writeHead(302, {
+        Location: `http://${request.headers.host}/students`,
+      })
+      .end();
   } else {
     let searchParams = new URLSearchParams(parsedURL.query);
     let order = searchParams.get("order");
@@ -129,8 +162,7 @@ async function studentList(request, response) {
       houses: HOUSES,
       order,
     });
-    response.setHeader("Content-Type", "text/html");
-    response.end(html);
+    response.writeHead(200, { "Content-Type": "text/html" }).end(html);
   }
 }
 
@@ -148,7 +180,7 @@ async function studentDelete(request, response) {
 
   response
     .writeHead(302, {
-      Location: `http://${HOSTNAME}:${PORT}/students`,
+      Location: `http://${request.headers.host}/students`,
     })
     .end();
 }
@@ -164,8 +196,9 @@ async function studentChange(request, response, params) {
     : null;
 
   if (!student) {
-    response.writeHead(404, { "Content-Type": "text/html" });
-    response.end("<h1>No student found</h1>\n");
+    response
+      .writeHead(404, { "Content-Type": "text/html" })
+      .end("<h1>No student found</h1>\n");
     return;
   }
 
@@ -198,15 +231,15 @@ async function studentChange(request, response, params) {
               unique: "Student name and house are not unique",
             },
           });
-          response.writeHead(400, { "Content-Type": "text/html" });
-          response.end(html);
+          response.writeHead(400, { "Content-Type": "text/html" }).end(html);
           return;
         }
       }
-      response.writeHead(302, {
-        Location: `http://${HOSTNAME}:${PORT}/students`,
-      });
-      response.end();
+      response
+        .writeHead(302, {
+          Location: `http://${request.headers.host}/students`,
+        })
+        .end();
     } else {
       let html = await renderTemplate("student-edit.html", {
         ...context,
@@ -215,14 +248,53 @@ async function studentChange(request, response, params) {
           house: studentHouseIsValid ? undefined : "Invalid house",
         },
       });
-      response.writeHead(400, { "Content-Type": "text/html" });
-      response.end(html);
+      response.writeHead(400, { "Content-Type": "text/html" }).end(html);
     }
   } else {
     let html = await renderTemplate("student-edit.html", context);
-    response.setHeader("Content-Type", "text/html");
-    response.end(html);
+    response.writeHead(200, { "Content-Type": "text/html" }).end(html);
   }
+}
+
+function studentsAPISearch(request, response) {
+  response
+    .writeHead(200, { "Content-Type": "applicatoin/json" })
+    .end('[{"name":"Harry"},{"name":"Hermione"}]\n');
+}
+
+/**
+ * @param {http.IncomingMessage} request
+ * @param {http.ServerResponse} response
+ */
+async function studentsSearch(request, response) {
+  let html = await renderTemplate("students-search.html");
+  response.writeHead(200, { "Content-Type": "text/html" });
+  response.end(html);
+}
+
+/**
+ * @param {http.IncomingMessage} request
+ * @param {http.ServerResponse} response
+ */
+async function studentsDownload(request, response) {
+  const FIELD_NAMES = ["id", "name", "house"];
+  let students = await db.all(`SELECT ${FIELD_NAMES.join(", ")} FROM students`);
+
+  // prettier-ignore
+  var csvStr = students
+    .map(function (student) {
+      return FIELD_NAMES
+        .map(function (fieldName) { return student[fieldName]; })
+        .join(",");
+    })
+    .join("\n");
+
+  response
+    .writeHead(200, {
+      "Content-Type": "text/csv",
+      "Content-Disposition": "attachment;filename=students.csv",
+    })
+    .end(`${FIELD_NAMES.join(",")}\n${csvStr}\n`);
 }
 
 /**

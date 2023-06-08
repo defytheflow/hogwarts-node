@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Поиск по студентам</title>
+  </head>
+  <body>
+    <label for="search">Поиск по студента</label>
+    <input autofocus id="search" name="search" />
+    <ul id="list"></ul>
+    <script>
+      var searchEl = document.querySelector("#search");
+      var listEl = document.querySelector("#list");
+
+      searchEl.addEventListener("input", async function handleKeyPress(event) {
+        var response = await fetch("/api/students");
+        var students = await response.json();
+        while (listEl.children.length > 0) {
+          listEl.removeChild(listEl.children[0]);
+        }
+        for (let student of students) {
+          let itemEl = document.createElement("li");
+          itemEl.textContent = student.name;
+          listEl.appendChild(itemEl);
+        }
+      });
+    </script>
+  </body>
+</html>
