@@ -7,7 +7,7 @@
     <title>Поиск по студентам</title>
   </head>
   <body>
-    <label for="search">Поиск по студента</label>
+    <label for="search">Поиск по студенту</label>
     <input autofocus id="search" name="search" />
     <ul id="list"></ul>
     <script>
@@ -15,8 +15,11 @@
       var listEl = document.querySelector("#list");
 
       searchEl.addEventListener("input", async function handleKeyPress(event) {
-        var response = await fetch("/api/students");
+        var response = await fetch(
+          `/api/students?search=${event.target.value}`
+        );
         var students = await response.json();
+
         while (listEl.children.length > 0) {
           listEl.removeChild(listEl.children[0]);
         }

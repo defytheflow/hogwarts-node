@@ -67,11 +67,16 @@ var routes = [
     methods: ["GET"],
     handler: studentsAPISearch,
   },
+  {
+    path: "/img/:image",
+    methods: ["GET"],
+    handler: studentsImage,
+  },
 ];
 
 for (let route of routes) {
   route.pattern = new RegExp(
-    "^" + route.path.replace(/:(\w+)/, "(?<$1>\\w+)") + "$"
+    "^" + route.path.replace(/:([\w.]+)/, "(?<$1>[\\w.]+)") + "$"
   );
 }
 
@@ -149,7 +154,7 @@ async function studentList(request, response) {
     let searchParams = new URLSearchParams(parsedURL.query);
     let order = searchParams.get("order");
 
-    let query = "SELECT id, name, house FROM students";
+    let query = "SELECT id, name, house, image FROM students";
     if (order == "abc") {
       query += " ORDER BY name ASC";
     } else if (order == "zyx") {
@@ -256,10 +261,19 @@ async function studentChange(request, response, params) {
   }
 }
 
-function studentsAPISearch(request, response) {
+async function studentsAPISearch(request, response) {
+  var parsedURL = url.parse(request.url);
+  let searchParams = new URLSearchParams(parsedURL.query);
+  let search = searchParams.get("search");
+
+  let students = await db.all(
+    "SELECT name, house FROM students WHERE name LIKE ?",
+    `%${search}%`
+  );
+
   response
     .writeHead(200, { "Content-Type": "applicatoin/json" })
-    .end('[{"name":"Harry"},{"name":"Hermione"}]\n');
+    .end(JSON.stringify(students));
 }
 
 /**
@@ -295,6 +309,21 @@ async function studentsDownload(request, response) {
       "Content-Disposition": "attachment;filename=students.csv",
     })
     .end(`${FIELD_NAMES.join(",")}\n${csvStr}\n`);
+}
+
+/**
+ * @param {http.IncomingMessage} request
+ * @param {http.ServerResponse} response
+ */
+async function studentsImage(request, response, params) {
+  let image = params.image;
+
+  try {
+    let img = await fs.readFile(path.join("images", image));
+    response.end(img);
+  } catch {
+    response.writeHead(404).end();
+  }
 }
 
 /**
