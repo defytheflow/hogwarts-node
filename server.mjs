@@ -5,8 +5,10 @@ import path from "path";
 
 import sqlite3 from "sqlite3";
 import { open } from "sqlite";
-
 import handlebars from "handlebars";
+
+import Router from "./router.mjs";
+import { json, redirect } from "./utils.mjs";
 
 const HOSTNAME = process.env.HOSTNAME || "127.0.0.1";
 const PORT = process.env.PORT || 8000;
@@ -31,238 +33,178 @@ var House = {
 
 var HOUSES = Object.values(House);
 
-var routes = [
-  {
-    path: "/",
-    methods: ["GET"],
-    handler: index,
-  },
-  {
-    path: "/students",
-    methods: ["GET", "POST"],
-    handler: studentList,
-  },
-  {
-    path: "/students/delete",
-    methods: ["POST"],
-    handler: studentDelete,
-  },
-  {
-    path: "/students/:id/change",
-    methods: ["GET", "POST"],
-    handler: studentChange,
-  },
-  {
-    path: "/students/download",
-    methods: ["GET"],
-    handler: studentsDownload,
-  },
-  {
-    path: "/students/search",
-    methods: ["GET"],
-    handler: studentsSearch,
-  },
-  {
-    path: "/api/students",
-    methods: ["GET"],
-    handler: studentsAPISearch,
-  },
-  {
-    path: "/img/:image",
-    methods: ["GET"],
-    handler: studentsImage,
-  },
-];
+var router = new Router();
 
-for (let route of routes) {
-  route.pattern = new RegExp(
-    "^" + route.path.replace(/:([\w.]+)/, "(?<$1>[\\w.]+)") + "$"
-  );
-}
-
-var server = http.createServer(function handler(request, response) {
-  var parsedURL = url.parse(request.url);
-
-  for (let route of routes) {
-    let match = route.pattern.exec(parsedURL.pathname);
-    if (!match) {
-      continue;
-    }
-    if (route.methods.includes(request.method)) {
-      let params = match.groups ?? {};
-      route.handler(request, response, params);
-    } else {
-      response.writeHead(405).end();
-    }
-    return;
+var server = http.createServer(function handler(req, res) {
+  if (req.url.endsWith("/")) {
+    redirect(req, res, req.url.slice(0, -1), 301);
+  } else {
+    router.handler(req, res);
   }
-
-  response
-    .writeHead(404, { "Content-Type": "text/html" })
-    .end("<h1>Page not found!</h1>\n");
 });
 
-/**
- * @param {http.IncomingMessage} request
- * @param {http.ServerResponse} response
- */
-function index(request, response) {
-  response
-    .writeHead(302, {
-      Location: `http://${request.headers.host}/students`,
-    })
-    .end();
-}
+router.get("/", function index(req, res) {
+  redirect(req, res, "/students");
+});
 
-/**
- * @param {http.IncomingMessage} request
- * @param {http.ServerResponse} response
- */
-async function studentList(request, response) {
-  var parsedURL = url.parse(request.url);
+router.get("/students", async function studentList(req, res) {
+  var parsedURL = url.parse(req.url);
+  let searchParams = new URLSearchParams(parsedURL.query);
+  let order = searchParams.get("order");
 
-  if (request.method == "POST") {
-    let formData = await parseFormData(request);
+  let query = "SELECT id, name, house, image FROM students";
 
-    let studentName = formData.get("name");
-    let studentHouse = formData.get("house");
-
-    if (studentName && HOUSES.includes(studentHouse)) {
-      let isUniqueStudent =
-        (
-          await db.get(
-            "SELECT EXISTS(SELECT 1 FROM students WHERE name = ?) AS exists_",
-            studentName
-          )
-        ).exists_ == 0;
-
-      if (isUniqueStudent) {
-        await db.run(
-          "INSERT INTO students (name, house) VALUES (?, ?)",
-          studentName,
-          studentHouse
-        );
-      }
-    }
-
-    response
-      .writeHead(302, {
-        Location: `http://${request.headers.host}/students`,
-      })
-      .end();
-  } else {
-    let searchParams = new URLSearchParams(parsedURL.query);
-    let order = searchParams.get("order");
-
-    let query = "SELECT id, name, house, image FROM students";
-    if (order == "abc") {
-      query += " ORDER BY name ASC";
-    } else if (order == "zyx") {
-      query += " ORDER BY name DESC";
-    }
-
-    let students = await db.all(query);
-    let html = await renderTemplate("students.html", {
-      students,
-      houses: HOUSES,
-      order,
-    });
-    response.writeHead(200, { "Content-Type": "text/html" }).end(html);
+  if (order == "abc") {
+    query += " ORDER BY name ASC";
+  } else if (order == "zyx") {
+    query += " ORDER BY name DESC";
   }
-}
 
-/**
- * @param {http.IncomingMessage} request
- * @param {http.ServerResponse} response
- */
-async function studentDelete(request, response) {
-  let formData = await parseFormData(request);
+  let students = await db.all(query);
+  let html = await renderTemplate("students.html", {
+    students,
+    houses: HOUSES,
+    order,
+  });
+
+  res.writeHead(200, { "Content-Type": "text/html" }).end(html);
+});
+
+router.post("/students", async function studentCreate(req, res) {
+  let formData = await parseFormData(req);
+
+  let studentName = formData.get("name");
+  let studentHouse = formData.get("house");
+
+  if (studentName && HOUSES.includes(studentHouse)) {
+    let isUniqueStudent =
+      (
+        await db.get(
+          "SELECT EXISTS(SELECT 1 FROM students WHERE name = ?) AS exists_",
+          studentName
+        )
+      ).exists_ == 0;
+
+    if (isUniqueStudent) {
+      await db.run(
+        "INSERT INTO students (name, house) VALUES (?, ?)",
+        studentName,
+        studentHouse
+      );
+    }
+  }
+
+  redirect(req, res, "/students");
+});
+
+router.post("/students/delete", async function studentDelete(req, res) {
+  let formData = await parseFormData(req);
   let studentId = formData.get("id");
 
   if (studentId) {
     await db.run("DELETE FROM students WHERE id = ?", studentId);
   }
 
-  response
-    .writeHead(302, {
-      Location: `http://${request.headers.host}/students`,
-    })
-    .end();
-}
+  redirect(req, res, "/students");
+});
 
-/**
- * @param {http.IncomingMessage} request
- * @param {http.ServerResponse} response
- */
-async function studentChange(request, response, params) {
-  let studentId = params.id;
-  let student = studentId
-    ? await db.get("SELECT name, house FROM students WHERE id = ?", studentId)
-    : null;
+router.all(
+  "/students/:id/change",
+  async function studentDetail(req, res, params) {
+    console.log(params);
 
-  if (!student) {
-    response
-      .writeHead(404, { "Content-Type": "text/html" })
-      .end("<h1>No student found</h1>\n");
-    return;
-  }
+    let studentId = params.id;
+    let student = studentId
+      ? await db.get("SELECT name, house FROM students WHERE id = ?", studentId)
+      : null;
 
-  let context = {
-    student,
-    houses: HOUSES,
-  };
-
-  if (request.method == "POST") {
-    let formData = await parseFormData(request);
-    let studentName = formData.get("name");
-    let studentHouse = formData.get("house");
-
-    let studentNameIsValid = studentName.length > 0;
-    let studentHouseIsValid = HOUSES.includes(studentHouse);
-
-    if (studentNameIsValid && studentHouseIsValid) {
-      try {
-        await db.run(
-          "UPDATE students SET name = ?, house = ? WHERE id = ?",
-          studentName,
-          studentHouse,
-          studentId
-        );
-      } catch (err) {
-        if (err.message.includes("UNIQUE constraint failed")) {
-          let html = await renderTemplate("student-edit.html", {
-            ...context,
-            errors: {
-              unique: "Student name and house are not unique",
-            },
-          });
-          response.writeHead(400, { "Content-Type": "text/html" }).end(html);
-          return;
-        }
-      }
-      response
-        .writeHead(302, {
-          Location: `http://${request.headers.host}/students`,
-        })
-        .end();
-    } else {
-      let html = await renderTemplate("student-edit.html", {
-        ...context,
-        errors: {
-          name: studentNameIsValid ? undefined : "Name should not be empty",
-          house: studentHouseIsValid ? undefined : "Invalid house",
-        },
-      });
-      response.writeHead(400, { "Content-Type": "text/html" }).end(html);
+    if (!student) {
+      res
+        .writeHead(404, { "Content-Type": "text/html" })
+        .end("<h1>No student found</h1>\n");
+      return;
     }
-  } else {
-    let html = await renderTemplate("student-edit.html", context);
-    response.writeHead(200, { "Content-Type": "text/html" }).end(html);
-  }
-}
 
-async function studentsAPISearch(request, response) {
-  var parsedURL = url.parse(request.url);
+    let context = {
+      student,
+      houses: HOUSES,
+    };
+
+    if (req.method == "POST") {
+      let formData = await parseFormData(req);
+      let studentName = formData.get("name");
+      let studentHouse = formData.get("house");
+
+      let studentNameIsValid = studentName.length > 0;
+      let studentHouseIsValid = HOUSES.includes(studentHouse);
+
+      if (studentNameIsValid && studentHouseIsValid) {
+        try {
+          await db.run(
+            "UPDATE students SET name = ?, house = ? WHERE id = ?",
+            studentName,
+            studentHouse,
+            studentId
+          );
+        } catch (err) {
+          if (err.message.includes("UNIQUE constraint failed")) {
+            let html = await renderTemplate("student-edit.html", {
+              ...context,
+              errors: {
+                unique: "Student name and house are not unique",
+              },
+            });
+            res.writeHead(400, { "Content-Type": "text/html" }).end(html);
+            return;
+          }
+        }
+
+        redirect(req, res, "/students");
+      } else {
+        let html = await renderTemplate("student-edit.html", {
+          ...context,
+          errors: {
+            name: studentNameIsValid ? undefined : "Name should not be empty",
+            house: studentHouseIsValid ? undefined : "Invalid house",
+          },
+        });
+        res.writeHead(400, { "Content-Type": "text/html" }).end(html);
+      }
+    } else {
+      let html = await renderTemplate("student-edit.html", context);
+      res.writeHead(200, { "Content-Type": "text/html" }).end(html);
+    }
+  }
+);
+
+router.get("/students/download", async function studentsDownload(req, res) {
+  const FIELD_NAMES = ["id", "name", "house"];
+  let students = await db.all(`SELECT ${FIELD_NAMES.join(", ")} FROM students`);
+
+  var csvStr = students
+    .map(function (student) {
+      return FIELD_NAMES.map(function (fieldName) {
+        return student[fieldName];
+      }).join(",");
+    })
+    .join("\n");
+
+  res
+    .writeHead(200, {
+      "Content-Type": "text/csv",
+      "Content-Disposition": "attachment;filename=students.csv",
+    })
+    .end(`${FIELD_NAMES.join(",")}\n${csvStr}\n`);
+});
+
+router.get("/students/search", async function studentsSearch(req, res) {
+  let html = await renderTemplate("students-search.html");
+  res.writeHead(200, { "Content-Type": "text/html" });
+  res.end(html);
+});
+
+router.get("/api/students", async function studentsAPISearch(req, res) {
+  var parsedURL = url.parse(req.url);
   let searchParams = new URLSearchParams(parsedURL.query);
   let search = searchParams.get("search");
 
@@ -271,60 +213,17 @@ async function studentsAPISearch(request, response) {
     `%${search}%`
   );
 
-  response
-    .writeHead(200, { "Content-Type": "applicatoin/json" })
-    .end(JSON.stringify(students));
-}
+  json(res, students);
+});
 
-/**
- * @param {http.IncomingMessage} request
- * @param {http.ServerResponse} response
- */
-async function studentsSearch(request, response) {
-  let html = await renderTemplate("students-search.html");
-  response.writeHead(200, { "Content-Type": "text/html" });
-  response.end(html);
-}
-
-/**
- * @param {http.IncomingMessage} request
- * @param {http.ServerResponse} response
- */
-async function studentsDownload(request, response) {
-  const FIELD_NAMES = ["id", "name", "house"];
-  let students = await db.all(`SELECT ${FIELD_NAMES.join(", ")} FROM students`);
-
-  // prettier-ignore
-  var csvStr = students
-    .map(function (student) {
-      return FIELD_NAMES
-        .map(function (fieldName) { return student[fieldName]; })
-        .join(",");
-    })
-    .join("\n");
-
-  response
-    .writeHead(200, {
-      "Content-Type": "text/csv",
-      "Content-Disposition": "attachment;filename=students.csv",
-    })
-    .end(`${FIELD_NAMES.join(",")}\n${csvStr}\n`);
-}
-
-/**
- * @param {http.IncomingMessage} request
- * @param {http.ServerResponse} response
- */
-async function studentsImage(request, response, params) {
-  let image = params.image;
-
+router.get("/img/:image", async function studentsImage(req, res, params) {
   try {
-    let img = await fs.readFile(path.join("images", image));
-    response.end(img);
+    let img = await fs.readFile(path.join("images", params.image));
+    res.end(img);
   } catch {
-    response.writeHead(404).end();
+    res.writeHead(404).end();
   }
-}
+});
 
 /**
  * @param {string} name
@@ -336,34 +235,6 @@ async function renderTemplate(name, context) {
   let template = handlebars.compile(templateStr);
   let htmlStr = template(context);
   return htmlStr;
-}
-
-/**
- * @param {http.IncomingMessage} request
- * @returns {Promise<FormData>}
- */
-async function parseFormData(request) {
-  return new Promise(function (resolve, reject) {
-    var chunks = [];
-
-    request.on("data", function (chunk) {
-      chunks.push(chunk);
-    });
-
-    request.on("end", function () {
-      var body = Buffer.concat(chunks).toString();
-      var params = new URLSearchParams(body);
-      var formData = new FormData();
-
-      for (let [key, value] of params) {
-        formData.append(key, value);
-      }
-
-      resolve(formData);
-    });
-
-    request.on("error", reject);
-  });
 }
 
 server.listen(PORT, HOSTNAME, function () {
