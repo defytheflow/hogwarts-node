@@ -4,16 +4,35 @@ import url from "url";
 export default class Router {
   /**
    * @typedef {(
-   *   request: http.IncomingMessage,
-   *   response: http.ServerResponse,
+   *   req: http.IncomingMessage,
+   *   res: http.ServerResponse,
    *   params: Record<string, string>,
    * ) => void} RequestHandler
+   */
+
+  /**
+   *  @typedef {(
+   *    req: http.IncomingMessage,
+   *    res: http.ServerResponse,
+   *    next: () => void) => Promise<void>} MiddlewareFunction
    */
 
   /**
    * @type {Record<string, {regex: RegExp; get?: RequestHandler, post?: RequestHandler}>}
    */
   #routes = Object.create(null);
+
+  /**
+   * @type {MiddlewareFunction[]}
+   */
+  #middlewares = [];
+
+  /**
+   * @param {MiddlewareFunction} middleware
+   */
+  use(middleware) {
+    this.#middlewares.push(middleware);
+  }
 
   /**
    * @param {string} path
@@ -47,34 +66,68 @@ export default class Router {
   }
 
   /**
-   * @param {http.IncomingMessage} request
-   * @param {http.ServerResponse} response
+   * @param {http.IncomingMessage} req
+   * @param {http.ServerResponse} res
    */
-  handler(request, response) {
-    var { pathname } = url.parse(request.url);
+  async handle(req, res) {
+    var lastMiddlewareCalledNext = await this.#applyMiddleware(req, res);
+
+    if (!lastMiddlewareCalledNext) {
+      return;
+    }
+
+    var { pathname } = url.parse(req.url);
 
     for (let route of Object.values(this.#routes)) {
       let match = route.regex.exec(pathname);
 
       if (match) {
-        let handler = route[request.method.toLowerCase()];
+        let handler = route[req.method.toLowerCase()];
 
         if (handler) {
           let params = match.groups ?? {};
-          handler(request, response, params);
+          handler(req, res, params);
         } else {
-          response.writeHead(405).end();
+          res.writeHead(405).end();
         }
 
         return;
       }
     }
 
-    response
+    res
       .writeHead(404, { "Content-Type": "text/html" })
       .end("<h1>Page not found!</h1>\n");
   }
 
+  /**
+   * @param {http.IncomingMessage} req
+   * @param {http.ServerResponse} res
+   * @returns {Promise<boolean>}
+   */
+  async #applyMiddleware(req, res) {
+    var lastMiddlewareCalledNext = true;
+
+    for (let middleware of this.#middlewares) {
+      let nextCalled = false;
+
+      await middleware(req, res, function next() {
+        nextCalled = true;
+      });
+
+      if (!nextCalled) {
+        lastMiddlewareCalledNext = false;
+        break;
+      }
+    }
+
+    return lastMiddlewareCalledNext;
+  }
+
+  /**
+   * @param {string} path
+   * @returns {RegExp}
+   */
   static #pathToRegex(path) {
     return new RegExp("^" + path.replace(/:([\w.]+)/, "(?<$1>[\\w.]+)") + "$");
   }

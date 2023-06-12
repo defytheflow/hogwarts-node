@@ -1,14 +1,16 @@
-import http from "http";
+import http from "node:http";
 
-export { json, redirect, parseFormData };
+export { json, redirect };
 
 /**
  * @param {http.ServerResponse} res
- * @param {any} object
+ * @param {any} data
+ * @param {number} statusCode
  */
-function json(res, object) {
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(object));
+function json(res, data, statusCode = 200) {
+  res
+    .writeHead(statusCode, { "Content-Type": "application/json" })
+    .end(JSON.stringify(data));
 }
 
 /**
@@ -18,34 +20,7 @@ function json(res, object) {
  * @param {number} statusCode
  */
 function redirect(req, res, path, statusCode = 302) {
-  res.writeHead(statusCode, { Location: `http://${req.headers.host}${path}` });
-  res.end();
-}
-
-/**
- * @param {http.IncomingMessage} req
- * @returns {Promise<FormData>}
- */
-async function parseFormData(req) {
-  return new Promise(function (resolve, reject) {
-    var chunks = [];
-
-    req.on("data", function (chunk) {
-      chunks.push(chunk);
-    });
-
-    req.on("end", function () {
-      var body = Buffer.concat(chunks).toString();
-      var params = new URLSearchParams(body);
-      var formData = new FormData();
-
-      for (let [key, value] of params) {
-        formData.append(key, value);
-      }
-
-      resolve(formData);
-    });
-
-    req.on("error", reject);
-  });
+  res
+    .writeHead(statusCode, { Location: `http://${req.headers.host}${path}` })
+    .end();
 }

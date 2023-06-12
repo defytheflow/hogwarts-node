@@ -1,14 +1,16 @@
-import http from "http";
-import url from "url";
-import fs from "fs/promises";
-import path from "path";
+import http from "node:http";
+import url from "node:url";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 import sqlite3 from "sqlite3";
 import { open } from "sqlite";
-import handlebars from "handlebars";
 
-import Router from "./router.mjs";
+import { renderTemplate } from "./handlebars.mjs";
 import { json, redirect } from "./utils.mjs";
+import serveStatic from "./static.mjs";
+import parseFormData from "./formData.mjs";
+import Router from "./router.mjs";
 
 const HOSTNAME = process.env.HOSTNAME || "127.0.0.1";
 const PORT = process.env.PORT || 8000;
@@ -18,10 +20,8 @@ var db = await open({
   driver: sqlite3.Database,
 });
 
-handlebars.registerHelper("select", function (selected, options) {
-  return options
-    .fn(this)
-    .replace(new RegExp(' value="' + selected + '"'), '$& selected="selected"');
+var server = http.createServer(async function handleRequest(req, res) {
+  await router.handle(req, res);
 });
 
 var House = {
@@ -35,13 +35,16 @@ var HOUSES = Object.values(House);
 
 var router = new Router();
 
-var server = http.createServer(function handler(req, res) {
+router.use(function redirectTrailingSlash(req, res, next) {
   if (req.url.endsWith("/")) {
     redirect(req, res, req.url.slice(0, -1), 301);
   } else {
-    router.handler(req, res);
+    next();
   }
 });
+
+router.use(serveStatic);
+router.use(parseFormData);
 
 router.get("/", function index(req, res) {
   redirect(req, res, "/students");
@@ -71,17 +74,16 @@ router.get("/students", async function studentList(req, res) {
 });
 
 router.post("/students", async function studentCreate(req, res) {
-  let formData = await parseFormData(req);
-
-  let studentName = formData.get("name");
-  let studentHouse = formData.get("house");
+  let studentName = req.formData.get("name");
+  let studentHouse = req.formData.get("house");
 
   if (studentName && HOUSES.includes(studentHouse)) {
     let isUniqueStudent =
       (
         await db.get(
-          "SELECT EXISTS(SELECT 1 FROM students WHERE name = ?) AS exists_",
-          studentName
+          "SELECT EXISTS(SELECT 1 FROM students WHERE name = ? AND house = ?) AS exists_",
+          studentName,
+          studentHouse
         )
       ).exists_ == 0;
 
@@ -98,8 +100,7 @@ router.post("/students", async function studentCreate(req, res) {
 });
 
 router.post("/students/delete", async function studentDelete(req, res) {
-  let formData = await parseFormData(req);
-  let studentId = formData.get("id");
+  let studentId = req.formData.get("id");
 
   if (studentId) {
     await db.run("DELETE FROM students WHERE id = ?", studentId);
@@ -111,8 +112,6 @@ router.post("/students/delete", async function studentDelete(req, res) {
 router.all(
   "/students/:id/change",
   async function studentDetail(req, res, params) {
-    console.log(params);
-
     let studentId = params.id;
     let student = studentId
       ? await db.get("SELECT name, house FROM students WHERE id = ?", studentId)
@@ -131,9 +130,8 @@ router.all(
     };
 
     if (req.method == "POST") {
-      let formData = await parseFormData(req);
-      let studentName = formData.get("name");
-      let studentHouse = formData.get("house");
+      let studentName = req.formData.get("name");
+      let studentHouse = req.formData.get("house");
 
       let studentNameIsValid = studentName.length > 0;
       let studentHouseIsValid = HOUSES.includes(studentHouse);
@@ -224,18 +222,6 @@ router.get("/img/:image", async function studentsImage(req, res, params) {
     res.writeHead(404).end();
   }
 });
-
-/**
- * @param {string} name
- * @param {Record<string, unknown>} context
- * @returns {Promise<string>}
- */
-async function renderTemplate(name, context) {
-  let templateStr = await fs.readFile(path.join("templates", name), "utf-8");
-  let template = handlebars.compile(templateStr);
-  let htmlStr = template(context);
-  return htmlStr;
-}
 
 server.listen(PORT, HOSTNAME, function () {
   console.log(`🚀 Server running at http://${HOSTNAME}:${PORT}`);
